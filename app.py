@@ -1,712 +1,667 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, date
-import time
+from flask import Flask, render_template_string, request, jsonify, session
+from flask_socketio import SocketIO, emit
+import json
+import os
+from datetime import datetime
+import random
 
-# ==================== PAGE CONFIG ====================
-st.set_page_config(
-    page_title="Vakyadharam - Spiritual Prayer Platform",
-    page_icon="🙏",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://www.vakyadharam.com/help',
-        'Report a bug': 'https://www.vakyadharam.com/bug',
-        'About': '### Vakyadharam Prayer Platform 2026\nSpiritual support community'
-    }
-)
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# ==================== CSS STYLING ====================
-st.markdown("""
-<style>
-    /* Modern 2026 Design */
-    .main-header {
-        font-size: 3rem;
-        color: #4B0082;
-        text-align: center;
-        padding: 20px;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 20px;
-        font-weight: 800;
-    }
-    
-    .sub-header {
-        font-size: 1.5rem;
-        color: #555;
-        text-align: center;
-        margin-bottom: 40px;
-    }
-    
-    /* Prayer Cards */
-    .prayer-card {
-        padding: 25px;
-        border-radius: 20px;
-        background: white;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-        margin: 15px 0;
-        border: 2px solid #f0f0f0;
-        transition: all 0.3s ease;
-        height: 100%;
-    }
-    
-    .prayer-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 15px 35px rgba(0,0,0,0.12);
-        border-color: #667eea;
-    }
-    
-    .general-card { border-top: 5px solid #4CAF50; }
-    .emergency-card { border-top: 5px solid #FF9800; }
-    .critical-card { border-top: 5px solid #F44336; }
-    
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 12px 30px;
-        border-radius: 25px;
-        font-weight: 600;
-        font-size: 16px;
-        cursor: pointer;
-        transition: all 0.3s;
-        width: 100%;
-    }
-    
-    .stButton > button:hover {
-        transform: scale(1.05);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-    }
-    
-    .emergency-btn > button {
-        background: linear-gradient(45deg, #FF9800 0%, #FF5722 100%);
-    }
-    
-    .critical-btn > button {
-        background: linear-gradient(45deg, #F44336 0%, #D32F2F 100%);
-    }
-    
-    /* Footer */
-    .footer {
-        background: linear-gradient(90deg, #1a237e 0%, #311b92 100%);
-        color: white;
-        padding: 20px;
-        margin-top: 40px;
-        border-radius: 15px;
-    }
-    
-    /* Mobile Icons */
-    .mobile-icons {
-        display: flex;
-        justify-content: space-around;
-        padding: 15px 0;
-        margin-top: 20px;
-        background: #f8f9fa;
-        border-radius: 15px;
-    }
-    
-    /* Form Styling */
-    .stTextInput > div > div > input {
-        border-radius: 10px;
-        border: 2px solid #e0e0e0;
-        padding: 10px 15px;
-    }
-    
-    .stTextArea > div > div > textarea {
-        border-radius: 10px;
-        border: 2px solid #e0e0e0;
-        padding: 15px;
-    }
-    
-    /* Badge */
-    .badge {
-        display: inline-block;
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: bold;
-        margin-left: 10px;
-    }
-    
-    .badge-new { background: #4CAF50; color: white; }
-    .badge-praying { background: #2196F3; color: white; }
-    .badge-answered { background: #9C27B0; color: white; }
-</style>
-""", unsafe_allow_html=True)
+# Mock Database
+users_db = {
+    "admin@spiritconnect.com": {"password": "admin123", "name": "Admin User", "role": "admin", "streak": 42},
+    "john@example.com": {"password": "john123", "name": "John Doe", "role": "user", "streak": 12}
+}
 
-# ==================== SIDEBAR ====================
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/4322/4322991.png", width=100)
-    st.markdown("# 🙏 Vakyadharam")
-    st.markdown("### Spiritual Prayer Platform")
-    st.markdown("---")
-    
-    # User Profile
-    st.markdown("### 👤 Your Profile")
-    user_name = st.text_input("Your Name", "Devotee")
-    
-    # Settings
-    st.markdown("### ⚙️ Settings")
-    notifications = st.checkbox("Push Notifications", True)
-    theme = st.selectbox("Theme", ["Light", "Dark", "Spiritual"])
-    language = st.selectbox("Language", ["English", "Telugu", "Hindi", "Tamil"])
-    
-    # AI Integration
-    st.markdown("### 🤖 AI Integration")
-    ai_services = st.multiselect(
-        "Select AI Assistants:",
-        ["ChatGPT", "DeepSeek", "Google AI", "Spiritual AI"]
-    )
-    
-    # Database Connection
-    if st.button("🔗 Connect Database"):
-        with st.spinner("Connecting to SQL Server..."):
-            time.sleep(2)
-            st.success("✅ Database Connected")
-    
-    st.markdown("---")
-    st.markdown("**📱 Mobile App 2026 Edition**")
-    st.caption("Version 2.6.1 | Professional Grade")
+prayers_db = [
+    {"id": 1, "user": "Sarah J.", "type": "CRITICAL FINAL CALL", "title": "Emergency Surgery", 
+     "body": "My father is going into heart surgery in 1 hour. Please pray for stability.", 
+     "count": 142, "timestamp": "10m ago", "status": "active"},
+    {"id": 2, "user": "Community", "type": "NEEDS", "title": "Peace for the Week", 
+     "body": "Feeling overwhelmed with work and family balance.", 
+     "count": 24, "timestamp": "2h ago", "status": "active"},
+    {"id": 3, "user": "David K.", "type": "EMERGENCY", "title": "Accident Recovery", 
+     "body": "Friend involved in car crash. Critical condition.", 
+     "count": 89, "timestamp": "15m ago", "status": "active"}
+]
 
-# ==================== HEADER ====================
-st.markdown('<h1 class="main-header">🙏 VAKYADHARAM PRAYER PLATFORM</h1>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">Spiritual Support • Community Prayer • Divine Connection</p>', unsafe_allow_html=True)
+posts_db = [
+    {"id": 1, "title": "Finding Peace in Chaos", "verse": "Philippians 4:7", 
+     "explanation": "The peace of God, which transcends all understanding...", 
+     "audio": "sermon1.mp3", "tags": ["Peace", "Anxiety"], "lang": "en", 
+     "image": "https://images.unsplash.com/photo-1507692049790-de58293a469d"}
+]
 
-# Stats Row
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Today's Prayers", "1,247", "+128")
-with col2:
-    st.metric("Prayers Answered", "892", "73%")
-with col3:
-    st.metric("Active Users", "5,821", "+312")
-with col4:
-    st.metric("Prayer Groups", "47", "+3")
-
-st.markdown("---")
-
-# ==================== 3 PRAYER CARDS ====================
-st.markdown("## 📿 Select Prayer Type")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    with st.container():
-        st.markdown('<div class="prayer-card general-card">', unsafe_allow_html=True)
-        st.markdown("### 📖 General Prayer Needs")
-        st.markdown("For daily life, health, family, blessings")
-        st.markdown("**Examples:**")
-        st.markdown("- Job opportunities")
-        st.markdown("- Family harmony")
-        st.markdown("- Health and wellness")
-        st.markdown("- Academic success")
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Button with custom CSS
-        st.markdown('<div class="stButton">', unsafe_allow_html=True)
-        if st.button("🙏 Request General Prayer", key="general_btn"):
-            st.session_state.prayer_type = "General Prayer Needs"
-            st.session_state.show_form = True
-        st.markdown('</div>', unsafe_allow_html=True)
-
-with col2:
-    with st.container():
-        st.markdown('<div class="prayer-card emergency-card">', unsafe_allow_html=True)
-        st.markdown("### 🚨 Emergency Prayer")
-        st.markdown("Urgent situations needing immediate prayer")
-        st.markdown("**Examples:**")
-        st.markdown("- Medical emergencies")
-        st.markdown("- Accident victims")
-        st.markdown("- Natural disasters")
-        st.markdown("- Urgent decisions")
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        st.markdown('<div class="stButton emergency-btn">', unsafe_allow_html=True)
-        if st.button("🆘 Request Emergency Prayer", key="emergency_btn"):
-            st.session_state.prayer_type = "Emergency Prayer"
-            st.session_state.show_form = True
-        st.markdown('</div>', unsafe_allow_html=True)
-
-with col3:
-    with st.container():
-        st.markdown('<div class="prayer-card critical-card">', unsafe_allow_html=True)
-        st.markdown("### ⚠️ Critical Condition")
-        st.markdown("Serious illnesses, accidents, life-threatening")
-        st.markdown("**Examples:**")
-        st.markdown("- ICU patients")
-        st.markdown("- Terminal illness")
-        st.markdown("- Life-saving surgery")
-        st.markdown("- Critical operations")
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        st.markdown('<div class="stButton critical-btn">', unsafe_allow_html=True)
-        if st.button("💔 Request Critical Prayer", key="critical_btn"):
-            st.session_state.prayer_type = "Critical Condition"
-            st.session_state.show_form = True
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# ==================== PRAYER REQUEST FORM ====================
-if st.session_state.get('show_form', False):
-    st.markdown("---")
-    st.markdown(f"## 📝 {st.session_state.prayer_type} Request Form")
-    
-    with st.form("prayer_request_form", clear_on_submit=True):
-        # Personal Details
-        col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("Your Full Name*", user_name)
-            email = st.text_input("Email Address")
-            phone = st.text_input("Mobile Number")
-        
-        with col2:
-            location = st.text_input("City/Country")
-            age = st.number_input("Age", min_value=1, max_value=120, value=30)
-            anonymous = st.checkbox("Submit anonymously")
-        
-        # Prayer Details
-        st.markdown("### Prayer Details")
-        prayer_title = st.text_input("Prayer Title*", placeholder="e.g., Healing from illness")
-        
-        prayer_details = st.text_area(
-            "Detailed Description*",
-            height=150,
-            placeholder="Please describe your prayer request in detail. Be as specific as possible..."
-        )
-        
-        # 3 OPTIONS AS YOU REQUESTED
-        st.markdown("### 🙌 How would you like to respond?")
-        response_option = st.radio(
-            "Select one option:",
-            [
-                "✅ **I prayed for this request** - Click if you've prayed",
-                "💬 **Leave a comment/encouragement** - Share supportive words",
-                "✨ **Say: 'Amen / Praise / Bless / Heal'** - Spiritual affirmation"
-            ],
-            index=0
-        )
-        
-        # Comment box if selected
-        if "comment" in response_option.lower():
-            comment = st.text_area("Your comment or words of encouragement:", height=100)
-        
-        # Media Upload Section
-        st.markdown("### 🎵 Optional Media Attachment")
-        media_type = st.radio(
-            "Add media:",
-            ["None", "Audio Recording", "Video Message", "YouTube Link", "Image"]
-        )
-        
-        if media_type != "None":
-            if media_type == "Audio Recording":
-                audio_file = st.file_uploader("Upload audio file", type=["mp3", "wav", "m4a"])
-                if audio_file:
-                    st.audio(audio_file)
-            elif media_type == "Video Message":
-                video_file = st.file_uploader("Upload video file", type=["mp4", "mov", "avi"])
-                if video_file:
-                    st.video(video_file)
-            elif media_type == "YouTube Link":
-                youtube_url = st.text_input("YouTube Video URL")
-                if youtube_url:
-                    st.video(youtube_url)
-            elif media_type == "Image":
-                image_file = st.file_uploader("Upload image", type=["jpg", "png", "jpeg"])
-                if image_file:
-                    st.image(image_file, caption="Prayer image", width=300)
-        
-        # Submit Button
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            submitted = st.form_submit_button("📤 Submit Prayer Request", use_container_width=True)
-        
-        if submitted:
-            with st.spinner("🕊️ Submitting your prayer to the divine network..."):
-                time.sleep(2)
+# HTML Template - DIRECT OPEN CONCEPT
+HTML_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpiritConnect - Spiritual Wellness App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/lucide-static@latest/font/lucide.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        .animate-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .slide-in-up { animation: slideInUp 0.3s ease-out; }
+        @keyframes slideInUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-blue-50">
+    <div id="app" class="min-h-screen">
+        <!-- DIRECT APP OPEN - NO INITIAL LOGIN -->
+        <div class="flex-1 flex flex-col">
+            <!-- Top Bar - No Login Required -->
+            <div class="bg-white/80 backdrop-blur-md px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-50 border-b border-slate-200/50">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg">
+                        <i data-lucide="heart" class="w-5 h-5" fill="white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold bg-gradient-to-r from-purple-700 to-indigo-700 bg-clip-text text-transparent">SpiritConnect</h1>
+                        <div class="flex items-center text-[10px] text-green-600 font-bold">
+                            <i data-lucide="users" class="w-3 h-3 mr-1"></i>
+                            <span>{{ liveCount }} praying now</span>
+                        </div>
+                    </div>
+                </div>
                 
-                # Success Animation
-                st.balloons()
-                st.success(f"🎉 **Thank you {name}!** Your {st.session_state.prayer_type} has been submitted to our prayer community.")
+                <!-- Login/Register Button at Top Right -->
+                <div class="flex items-center space-x-3">
+                    <div class="hidden md:flex items-center space-x-1 bg-slate-100 px-3 py-1.5 rounded-full text-sm">
+                        <span>🌍</span>
+                        <span class="font-medium">Global</span>
+                    </div>
+                    <button @click="showAuthModal = true" class="bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg hover:shadow-xl transition-shadow">
+                        <i data-lucide="log-in" class="w-4 h-4 inline mr-1"></i>
+                        Sign In
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Content - Accessible to All -->
+            <main class="flex-1 overflow-y-auto pb-24">
+                <!-- Hero Section -->
+                <div class="relative overflow-hidden bg-gradient-to-br from-indigo-900 via-purple-800 to-pink-700 rounded-b-3xl p-8 text-white mb-6">
+                    <div class="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32"></div>
+                    <div class="relative z-10 max-w-2xl mx-auto text-center">
+                        <h2 class="text-4xl font-serif mb-3">"Be still, and know that I am God"</h2>
+                        <p class="opacity-90 mb-6 font-medium text-lg">— Psalm 46:10</p>
+                        <div class="bg-white/10 backdrop-blur-md p-5 rounded-2xl border border-white/20 text-sm leading-relaxed inline-block">
+                            Take a moment to breathe. You're not alone. Join thousands in prayer.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Prayer Wall - Public Access -->
+                <div class="px-4">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-slate-800">Live Prayer Wall</h2>
+                        <div class="flex items-center text-sm text-slate-600">
+                            <i data-lucide="activity" class="w-4 h-4 mr-1 text-green-500"></i>
+                            <span>Real-time updates</span>
+                        </div>
+                    </div>
+
+                    <!-- Prayer Cards -->
+                    <div class="space-y-4">
+                        <div v-for="prayer in prayers" :key="prayer.id" class="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 hover:shadow-xl transition-shadow">
+                            <div class="flex justify-between items-start mb-3">
+                                <div class="flex items-center space-x-3">
+                                    <div class="h-10 w-10 rounded-full bg-gradient-to-r from-blue-100 to-purple-100 flex items-center justify-center text-slate-700 font-bold">
+                                        {{ prayer.user.charAt(0) }}
+                                    </div>
+                                    <div>
+                                        <h4 class="font-bold text-slate-800">{{ prayer.user }}</h4>
+                                        <p class="text-xs text-slate-500">{{ prayer.timestamp }}</p>
+                                    </div>
+                                </div>
+                                <span :class="{
+                                    'prayer-badge-emergency': prayer.type === 'EMERGENCY',
+                                    'prayer-badge-critical': prayer.type === 'CRITICAL FINAL CALL',
+                                    'prayer-badge-needs': prayer.type === 'NEEDS'
+                                }" class="px-3 py-1 rounded-full text-xs font-bold border">
+                                    <i v-if="prayer.type === 'EMERGENCY'" data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i>
+                                    {{ prayer.type }}
+                                </span>
+                            </div>
+
+                            <h3 class="text-lg font-bold text-slate-900 mb-2">{{ prayer.title }}</h3>
+                            <p class="text-slate-600 mb-4">{{ prayer.body }}</p>
+
+                            <!-- Prayer Actions - Anyone can pray -->
+                            <div class="grid grid-cols-3 gap-3">
+                                <button @click="prayFor(prayer.id)" 
+                                        class="flex items-center justify-center space-x-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white p-3 rounded-xl hover:shadow-lg transition">
+                                    <i data-lucide="heart" class="w-5 h-5"></i>
+                                    <span class="font-bold">I Prayed ({{ prayer.count }})</span>
+                                </button>
+                                <button @click="setReminder(prayer.id)" 
+                                        class="flex items-center justify-center space-x-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white p-3 rounded-xl hover:shadow-lg transition">
+                                    <i data-lucide="clock" class="w-5 h-5"></i>
+                                    <span class="font-bold">Remind Me</span>
+                                </button>
+                                <button @click="sharePrayer(prayer.id)" 
+                                        class="flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white p-3 rounded-xl hover:shadow-lg transition">
+                                    <i data-lucide="share-2" class="w-5 h-5"></i>
+                                    <span class="font-bold">Share</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Add New Prayer - Public -->
+                    <div class="mt-8 bg-gradient-to-r from-white to-blue-50 rounded-2xl p-6 border border-slate-200">
+                        <h3 class="font-bold text-slate-800 mb-4 text-lg">Share Your Prayer Request</h3>
+                        <div class="space-y-4">
+                            <input v-model="newPrayer.title" placeholder="Prayer title..." 
+                                   class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            <textarea v-model="newPrayer.body" placeholder="Share your prayer need..." rows="3"
+                                      class="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"></textarea>
+                            <div class="flex space-x-3">
+                                <button @click="setPrayerType('NEEDS')" 
+                                        :class="{'bg-emerald-500 text-white': newPrayer.type === 'NEEDS', 'bg-emerald-100 text-emerald-700': newPrayer.type !== 'NEEDS'}"
+                                        class="px-4 py-2 rounded-lg font-medium">Needs</button>
+                                <button @click="setPrayerType('CRITICAL FINAL CALL')"
+                                        :class="{'bg-orange-500 text-white': newPrayer.type === 'CRITICAL FINAL CALL', 'bg-orange-100 text-orange-700': newPrayer.type !== 'CRITICAL FINAL CALL'}"
+                                        class="px-4 py-2 rounded-lg font-medium">Critical</button>
+                                <button @click="setPrayerType('EMERGENCY')"
+                                        :class="{'bg-red-500 text-white': newPrayer.type === 'EMERGENCY', 'bg-red-100 text-red-700': newPrayer.type !== 'EMERGENCY'}"
+                                        class="px-4 py-2 rounded-lg font-medium">Emergency</button>
+                            </div>
+                            <button @click="submitPrayer" 
+                                    class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-xl font-bold text-lg hover:shadow-xl transition">
+                                <i data-lucide="upload" class="w-5 h-5 inline mr-2"></i>
+                                Submit Prayer Request
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Spiritual Content Section -->
+                <div class="px-4 mt-10">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Daily Inspiration</h2>
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div v-for="post in posts" :key="post.id" class="bg-white rounded-2xl shadow-lg overflow-hidden">
+                            <img :src="post.image" class="w-full h-48 object-cover">
+                            <div class="p-6">
+                                <h3 class="font-bold text-xl mb-2">{{ post.title }}</h3>
+                                <p class="text-slate-600 mb-3">{{ post.verse }}</p>
+                                <p class="text-slate-700">{{ post.explanation.substring(0, 100) }}...</p>
+                                <div class="flex items-center justify-between mt-4">
+                                    <div class="flex space-x-2">
+                                        <span v-for="tag in post.tags" class="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs">
+                                            {{ tag }}
+                                        </span>
+                                    </div>
+                                    <button class="text-indigo-600 font-bold">Read More →</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Stats -->
+                <div class="px-4 mt-10">
+                    <div class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-6 text-white">
+                        <h3 class="font-bold text-xl mb-4">Live Community Impact</h3>
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="text-center">
+                                <div class="text-3xl font-bold">{{ totalPrayers }}</div>
+                                <div class="text-sm opacity-90">Prayers Today</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold">{{ liveCount }}</div>
+                                <div class="text-sm opacity-90">Active Now</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold">{{ countries }}</div>
+                                <div class="text-sm opacity-90">Countries</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Bottom Navigation -->
+            <div class="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-slate-200 px-6 py-3 flex justify-around items-center z-40 pb-safe">
+                <button @click="activeTab = 'home'" :class="{'text-indigo-600': activeTab === 'home'}" class="flex flex-col items-center">
+                    <i data-lucide="home" class="w-6 h-6"></i>
+                    <span class="text-xs mt-1">Home</span>
+                </button>
+                <button @click="activeTab = 'prayer'" :class="{'text-indigo-600': activeTab === 'prayer'}" class="flex flex-col items-center">
+                    <i data-lucide="heart" class="w-6 h-6"></i>
+                    <span class="text-xs mt-1">Prayer</span>
+                </button>
+                <button @click="showAuthModal = true" class="flex flex-col items-center">
+                    <div class="bg-gradient-to-r from-indigo-500 to-purple-500 p-3 rounded-full -mt-6 shadow-lg">
+                        <i data-lucide="plus" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <span class="text-xs mt-1">New Prayer</span>
+                </button>
+                <button @click="activeTab = 'media'" :class="{'text-indigo-600': activeTab === 'media'}" class="flex flex-col items-center">
+                    <i data-lucide="play-circle" class="w-6 h-6"></i>
+                    <span class="text-xs mt-1">Media</span>
+                </button>
+                <button @click="showAuthModal = true" :class="{'text-indigo-600': activeTab === 'profile'}" class="flex flex-col items-center">
+                    <i data-lucide="user" class="w-6 h-6"></i>
+                    <span class="text-xs mt-1">Profile</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Authentication Modal (Login/Register) - Only shows when clicked -->
+        <div v-if="showAuthModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-in">
+            <div class="bg-white w-full max-w-md rounded-2xl overflow-hidden">
+                <!-- Tabs -->
+                <div class="flex border-b">
+                    <button @click="authMode = 'login'" 
+                            :class="{'border-b-2 border-indigo-600 text-indigo-600': authMode === 'login'}"
+                            class="flex-1 py-4 font-bold text-center">Login</button>
+                    <button @click="authMode = 'register'"
+                            :class="{'border-b-2 border-indigo-600 text-indigo-600': authMode === 'register'}"
+                            class="flex-1 py-4 font-bold text-center">Register</button>
+                </div>
+
+                <div class="p-6">
+                    <!-- Login Form -->
+                    <div v-if="authMode === 'login'">
+                        <h3 class="text-xl font-bold mb-6">Welcome Back</h3>
+                        <div class="space-y-4">
+                            <input v-model="loginEmail" type="email" placeholder="Email" 
+                                   class="w-full p-3 border rounded-xl">
+                            <input v-model="loginPassword" type="password" placeholder="Password" 
+                                   class="w-full p-3 border rounded-xl">
+                            <button @click="handleLogin" 
+                                    class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold">
+                                Sign In
+                            </button>
+                            <p class="text-center text-sm text-slate-500">
+                                Demo: admin@spiritconnect.com / admin123
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Register Form -->
+                    <div v-if="authMode === 'register'">
+                        <h3 class="text-xl font-bold mb-6">Join SpiritConnect</h3>
+                        <div class="space-y-4">
+                            <input v-model="registerName" type="text" placeholder="Full Name" 
+                                   class="w-full p-3 border rounded-xl">
+                            <input v-model="registerEmail" type="email" placeholder="Email" 
+                                   class="w-full p-3 border rounded-xl">
+                            <input v-model="registerPassword" type="password" placeholder="Password" 
+                                   class="w-full p-3 border rounded-xl">
+                            <input v-model="registerConfirm" type="password" placeholder="Confirm Password" 
+                                   class="w-full p-3 border rounded-xl">
+                            <button @click="handleRegister" 
+                                    class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-bold">
+                                Create Account
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 border-t text-center">
+                    <button @click="showAuthModal = false" class="text-slate-500 font-medium">
+                        Continue without account
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Panel Modal (Only for logged in admins) -->
+        <div v-if="showAdminPanel && user && user.role === 'admin'" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-4xl h-[80vh] rounded-2xl flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 class="text-xl font-bold">Admin Dashboard</h3>
+                    <button @click="showAdminPanel = false" class="text-slate-500">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-6">
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <!-- Manage Prayers -->
+                        <div class="border rounded-xl p-4">
+                            <h4 class="font-bold mb-3">Manage Prayer Requests</h4>
+                            <div class="space-y-3">
+                                <div v-for="prayer in prayers" class="flex items-center justify-between border-b pb-2">
+                                    <div>
+                                        <div class="font-medium">{{ prayer.title }}</div>
+                                        <div class="text-xs text-slate-500">{{ prayer.user }} • {{ prayer.count }} prayers</div>
+                                    </div>
+                                    <button @click="deletePrayer(prayer.id)" class="text-red-500">
+                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Add Content -->
+                        <div class="border rounded-xl p-4">
+                            <h4 class="font-bold mb-3">Add Spiritual Content</h4>
+                            <div class="space-y-3">
+                                <input v-model="adminContent.title" placeholder="Title" class="w-full p-2 border rounded">
+                                <textarea v-model="adminContent.body" placeholder="Content" rows="3" class="w-full p-2 border rounded"></textarea>
+                                <button @click="addContent" class="w-full bg-indigo-600 text-white p-2 rounded font-bold">
+                                    Publish Content
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vue.js and Socket.io -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script>
+        const { createApp, ref, computed, onMounted } = Vue;
+        
+        createApp({
+            setup() {
+                // App State
+                const user = ref(null);
+                const showAuthModal = ref(false);
+                const authMode = ref('login');
+                const showAdminPanel = ref(false);
+                const activeTab = ref('home');
                 
-                # Prayer Receipt
-                with st.expander("📋 View Prayer Receipt & Details", expanded=True):
-                    prayer_id = f"PRAY{np.random.randint(10000, 99999)}"
+                // Live Data
+                const liveCount = ref(487);
+                const totalPrayers = ref(142 + 24 + 89);
+                const countries = ref(42);
+                
+                // Prayer Data
+                const prayers = ref(%s);
+                const posts = ref(%s);
+                
+                // New Prayer Form
+                const newPrayer = ref({
+                    title: '',
+                    body: '',
+                    type: 'NEEDS'
+                });
+                
+                // Auth Forms
+                const loginEmail = ref('');
+                const loginPassword = ref('');
+                const registerName = ref('');
+                const registerEmail = ref('');
+                const registerPassword = ref('');
+                const registerConfirm = ref('');
+                
+                // Admin Content
+                const adminContent = ref({
+                    title: '',
+                    body: ''
+                });
+                
+                // Initialize Lucide icons
+                onMounted(() => {
+                    lucide.createIcons();
                     
-                    receipt_data = {
-                        "Prayer ID": prayer_id,
-                        "Submitted By": "Anonymous" if anonymous else name,
-                        "Prayer Type": st.session_state.prayer_type,
-                        "Submission Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "Status": "⏳ Active - Community is praying",
-                        "Response Option": response_option.split("**")[1].split("**")[0],
-                        "Estimated Prayers": f"{np.random.randint(10, 100)}+ people will pray"
+                    // Simulate live updates
+                    setInterval(() => {
+                        liveCount.value += Math.floor(Math.random() * 5) - 2;
+                        if (liveCount.value < 450) liveCount.value = 450;
+                        if (liveCount.value > 550) liveCount.value = 550;
+                    }, 5000);
+                });
+                
+                // Methods
+                const handleLogin = () => {
+                    // Mock login
+                    if (loginEmail.value === 'admin@spiritconnect.com' && loginPassword.value === 'admin123') {
+                        user.value = {
+                            email: 'admin@spiritconnect.com',
+                            name: 'Admin User',
+                            role: 'admin',
+                            streak: 42
+                        };
+                        showAuthModal.value = false;
+                        alert('Admin login successful!');
+                    } else if (loginEmail.value && loginPassword.value) {
+                        user.value = {
+                            email: loginEmail.value,
+                            name: 'John Doe',
+                            role: 'user',
+                            streak: 12
+                        };
+                        showAuthModal.value = false;
+                        alert('Login successful!');
+                    } else {
+                        alert('Please enter credentials');
+                    }
+                };
+                
+                const handleRegister = () => {
+                    if (registerPassword.value !== registerConfirm.value) {
+                        alert('Passwords do not match');
+                        return;
+                    }
+                    user.value = {
+                        email: registerEmail.value,
+                        name: registerName.value,
+                        role: 'user',
+                        streak: 0
+                    };
+                    showAuthModal.value = false;
+                    alert('Registration successful!');
+                };
+                
+                const prayFor = (prayerId) => {
+                    const prayer = prayers.value.find(p => p.id === prayerId);
+                    if (prayer) {
+                        prayer.count++;
+                        totalPrayers.value++;
+                        alert('Thank you for praying! 🙏');
+                    }
+                };
+                
+                const setReminder = (prayerId) => {
+                    alert('Reminder set for this prayer request ⏰');
+                };
+                
+                const sharePrayer = (prayerId) => {
+                    alert('Prayer shared! 📤');
+                };
+                
+                const setPrayerType = (type) => {
+                    newPrayer.value.type = type;
+                };
+                
+                const submitPrayer = () => {
+                    if (!newPrayer.value.title || !newPrayer.value.body) {
+                        alert('Please fill all fields');
+                        return;
                     }
                     
-                    for key, value in receipt_data.items():
-                        st.write(f"**{key}:** {value}")
+                    const newPrayerObj = {
+                        id: prayers.value.length + 1,
+                        user: user.value ? user.value.name : 'Anonymous',
+                        type: newPrayer.value.type,
+                        title: newPrayer.value.title,
+                        body: newPrayer.value.body,
+                        count: 0,
+                        timestamp: 'Just now',
+                        status: 'active'
+                    };
                     
-                    # Progress bar
-                    st.progress(0.3, text="Prayer progress: Gathering community...")
+                    prayers.value.unshift(newPrayerObj);
+                    newPrayer.value = { title: '', body: '', type: 'NEEDS' };
+                    alert('Prayer request submitted! 🙏');
+                };
                 
-                # AI Generated Response
-                if ai_services:
-                    with st.chat_message("assistant"):
-                        st.markdown("### 🤖 AI Spiritual Guidance:")
-                        
-                        ai_responses = {
-                            "General Prayer Needs": f"Dear {name}, may divine grace surround you and your family. Your faith in sharing this request is the first step toward manifestation. Remember: 'Faith can move mountains.'",
-                            "Emergency Prayer": f"{name}, in this urgent moment, may emergency grace flow to you. The community stands with you. 'God is our refuge and strength, an ever-present help in trouble.' - Psalm 46:1",
-                            "Critical Condition": f"Divine healing energy is now directed toward this situation, {name}. Every prayer adds light. 'He heals the brokenhearted and binds up their wounds.' - Psalm 147:3"
-                        }
-                        
-                        st.write(ai_responses.get(st.session_state.prayer_type, "May peace be with you."))
-                        
-                        # Suggested Actions
-                        st.markdown("**Suggested actions:**")
-                        st.markdown("1. **Deep breathing** - 5 minutes daily")
-                        st.markdown("2. **Gratitude journal** - Write 3 things you're thankful for")
-                        st.markdown("3. **Meditation** - 10 minutes of silent reflection")
-                        st.markdown("4. **Community connect** - Share with prayer groups")
+                const deletePrayer = (prayerId) => {
+                    if (confirm('Delete this prayer request?')) {
+                        prayers.value = prayers.value.filter(p => p.id !== prayerId);
+                    }
+                };
                 
-                # Push Notification Simulation
-                if notifications:
-                    st.info("🔔 **Push notification** sent to 1,247 prayer warriors")
+                const addContent = () => {
+                    if (!adminContent.value.title || !adminContent.value.body) {
+                        alert('Please fill all fields');
+                        return;
+                    }
+                    
+                    const newPost = {
+                        id: posts.value.length + 1,
+                        title: adminContent.value.title,
+                        verse: 'Admin Content',
+                        explanation: adminContent.value.body,
+                        audio: '',
+                        tags: ['Admin'],
+                        lang: 'en',
+                        image: 'https://images.unsplash.com/photo-1507692049790-de58293a469d'
+                    };
+                    
+                    posts.value.unshift(newPost);
+                    adminContent.value = { title: '', body: '' };
+                    alert('Content published!');
+                };
                 
-                # Reset form state
-                st.session_state.show_form = False
+                // Automatically show admin panel if admin logs in
+                Vue.watch(user, (newUser) => {
+                    if (newUser && newUser.role === 'admin') {
+                        setTimeout(() => {
+                            showAdminPanel.value = true;
+                        }, 1000);
+                    }
+                });
+                
+                return {
+                    user,
+                    showAuthModal,
+                    authMode,
+                    showAdminPanel,
+                    activeTab,
+                    liveCount,
+                    totalPrayers,
+                    countries,
+                    prayers,
+                    posts,
+                    newPrayer,
+                    loginEmail,
+                    loginPassword,
+                    registerName,
+                    registerEmail,
+                    registerPassword,
+                    registerConfirm,
+                    adminContent,
+                    handleLogin,
+                    handleRegister,
+                    prayFor,
+                    setReminder,
+                    sharePrayer,
+                    setPrayerType,
+                    submitPrayer,
+                    deletePrayer,
+                    addContent
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
+'''
 
-# ==================== DAILY BLOG SECTION ====================
-st.markdown("---")
-st.markdown("## 📖 Daily Spiritual Blog & Unlimited Posts")
+@app.route('/')
+def home():
+    return render_template_string(HTML_TEMPLATE % (
+        json.dumps(prayers_db), 
+        json.dumps(posts_db)
+    ))
 
-# Create tabs for unlimited posts
-tab_titles = ["Today's Message", "Scripture", "Testimonies", "Teachings", "Q&A", "Meditation", "More+"]
-tabs = st.tabs(tab_titles)
-
-with tabs[0]:
-    st.markdown(f"### 📅 Daily Message - {date.today().strftime('%B %d, %Y')}")
-    st.markdown("""
-    #### The Power of Collective Prayer
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.json
+    email = data.get('email')
+    password = data.get('password')
     
-    When we pray together, something miraculous happens. Our individual prayers merge into 
-    a powerful stream of spiritual energy that can move mountains.
-    
-    **Today's Reflection:**
-    > "For where two or three gather in my name, there am I with them." - Matthew 18:20
-    
-    **Practice for today:**
-    1. Find 5 minutes of quiet time
-    2. Visualize your prayer being answered
-    3. Send loving energy to someone in need
-    4. Practice gratitude for 3 blessings
-    
-    **Community Challenge:** Pray for 3 people today that you don't know personally.
-    """)
-    
-    # Blog interaction
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Views", "2,847")
-    with col2:
-        st.metric("Shares", "156")
-    with col3:
-        st.metric("Comments", "89")
-
-with tabs[1]:
-    st.markdown("### 📜 Scripture of the Day")
-    scriptures = [
-        {
-            "verse": "Philippians 4:6-7",
-            "text": "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.",
-            "theme": "Peace"
-        },
-        {
-            "verse": "Psalm 34:17-18",
-            "text": "The righteous cry out, and the LORD hears them; he delivers them from all their troubles. The LORD is close to the brokenhearted and saves those who are crushed in spirit.",
-            "theme": "Comfort"
-        },
-        {
-            "verse": "Jeremiah 29:12",
-            "text": "Then you will call on me and come and pray to me, and I will listen to you.",
-            "theme": "Promise"
+    if email in users_db and users_db[email]['password'] == password:
+        session['user'] = {
+            'email': email,
+            'name': users_db[email]['name'],
+            'role': users_db[email]['role']
         }
-    ]
-    
-    for scripture in scriptures:
-        with st.expander(f"{scripture['verse']} - {scripture['theme']}"):
-            st.markdown(f"**{scripture['verse']}**")
-            st.markdown(f"> {scripture['text']}")
-            st.markdown(f"*Theme: {scripture['theme']}*")
+        return jsonify({'success': True, 'user': session['user']})
+    return jsonify({'success': False, 'error': 'Invalid credentials'})
 
-with tabs[2]:
-    st.markdown("### 🌟 Recent Prayer Testimonies")
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.json
+    email = data.get('email')
     
-    testimonies = pd.DataFrame({
-        "Name": ["Rajesh", "Priya", "Arun", "Sunita", "Kumar"],
-        "Prayer": ["Healing from cancer", "Job after 2 years", "Family reconciliation", "Fertility blessing", "Financial breakthrough"],
-        "Result": ["✅ Complete remission", "✅ Dream job secured", "✅ Reunited after 5 years", "✅ Baby boy born", "✅ Debt free"],
-        "Days": ["45", "30", "120", "280", "90"],
-        "Prayers Received": ["1,247", "892", "2,156", "3,421", "1,089"]
+    if email in users_db:
+        return jsonify({'success': False, 'error': 'User already exists'})
+    
+    users_db[email] = {
+        'password': data.get('password'),
+        'name': data.get('name'),
+        'role': 'user',
+        'streak': 0
+    }
+    
+    session['user'] = {
+        'email': email,
+        'name': data.get('name'),
+        'role': 'user'
+    }
+    
+    return jsonify({'success': True, 'user': session['user']})
+
+@app.route('/api/prayers', methods=['GET', 'POST'])
+def prayers():
+    if request.method == 'POST':
+        data = request.json
+        new_prayer = {
+            'id': len(prayers_db) + 1,
+            'user': data.get('user', 'Anonymous'),
+            'type': data.get('type', 'NEEDS'),
+            'title': data.get('title'),
+            'body': data.get('body'),
+            'count': 0,
+            'timestamp': 'Just now',
+            'status': 'active'
+        }
+        prayers_db.insert(0, new_prayer)
+        socketio.emit('new_prayer', new_prayer)
+        return jsonify({'success': True, 'prayer': new_prayer})
+    
+    return jsonify({'prayers': prayers_db})
+
+@app.route('/api/pray/<int:prayer_id>', methods=['POST'])
+def pray(prayer_id):
+    for prayer in prayers_db:
+        if prayer['id'] == prayer_id:
+            prayer['count'] += 1
+            socketio.emit('prayer_update', prayer)
+            return jsonify({'success': True, 'count': prayer['count']})
+    return jsonify({'success': False, 'error': 'Prayer not found'})
+
+@app.route('/api/stats')
+def stats():
+    return jsonify({
+        'live_count': random.randint(450, 550),
+        'total_prayers': sum(p['count'] for p in prayers_db),
+        'countries': 42
     })
-    
-    st.dataframe(testimonies, use_container_width=True)
-    
-    # Add testimony button
-    if st.button("➕ Share Your Testimony"):
-        with st.form("testimony_form"):
-            testimony = st.text_area("Your testimony:")
-            if st.form_submit_button("Submit"):
-                st.success("Testimony submitted for review!")
 
-with tabs[3]:
-    st.markdown("### 🧘 Spiritual Teachings")
-    st.video("https://www.youtube.com/watch?v=zP2AaNWs3d8")
-    
-    teachings = [
-        "The Art of Mindful Prayer",
-        "Forgiveness as Healing",
-        "Gratitude Changes Everything",
-        "Meditation Techniques",
-        "Understanding Divine Timing"
-    ]
-    
-    for teaching in teachings:
-        st.markdown(f"- **{teaching}**")
-        st.caption(f"45 min teaching • {np.random.randint(100, 1000)} views")
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
+    emit('live_count', {'count': len(prayers_db)})
 
-# ==================== AUDIO/VIDEO PLAYER ====================
-st.markdown("---")
-st.markdown("## 🎵 Spiritual Media Center")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("### 🕊️ Peaceful Meditation Music")
-    
-    # Audio Player
-    audio_options = [
-        {"title": "Guided Meditation", "duration": "15:00"},
-        {"title": "Healing Frequencies", "duration": "30:00"},
-        {"title": "Chanting for Peace", "duration": "45:00"},
-        {"title": "Sleep Meditation", "duration": "60:00"}
-    ]
-    
-    for audio in audio_options:
-        with st.expander(f"🎵 {audio['title']} ({audio['duration']})"):
-            st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.button(f"▶️ Play", key=f"play_{audio['title']}")
-            with col_b:
-                st.button(f"⬇️ Download", key=f"dl_{audio['title']}")
-
-with col2:
-    st.markdown("### 📺 Inspirational Videos")
-    
-    # Video Player
-    video_options = [
-        {"title": "Morning Prayer", "duration": "10:24", "views": "12K"},
-        {"title": "Healing Testimonies", "duration": "25:15", "views": "45K"},
-        {"title": "Scripture Explained", "duration": "18:30", "views": "32K"},
-        {"title": "Meditation Guide", "duration": "42:10", "views": "67K"}
-    ]
-    
-    selected_video = st.selectbox(
-        "Choose a video:",
-        [f"{v['title']} ({v['duration']}) - {v['views']} views" for v in video_options]
-    )
-    
-    # YouTube embed
-    st.video("https://www.youtube.com/watch?v=zP2AaNWs3d8")
-    
-    # YouTube Links Input
-    st.markdown("### Add YouTube Links")
-    youtube_links = st.text_area(
-        "Enter YouTube URLs (one per line):",
-        "https://www.youtube.com/watch?v=zP2AaNWs3d8\nhttps://www.youtube.com/watch?v=JxS5E-kZc2s\nhttps://www.youtube.com/watch?v=7NK_JOkuSVY",
-        height=100
-    )
-
-# ==================== DATABASE & API INTEGRATION ====================
-st.markdown("---")
-st.markdown("## 🔗 Advanced Features")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("### 🗄️ Database Integration")
-    
-    if st.button("🔄 Connect to SQL Server"):
-        with st.spinner("Establishing secure connection..."):
-            time.sleep(3)
-            
-            # Simulated database data
-            prayer_data = pd.DataFrame({
-                "ID": range(1, 11),
-                "Name": ["Anil", "Sunita", "Ravi", "Meena", "Kumar", "Priya", "Arun", "Sita", "Raj", "Lakshmi"],
-                "Prayer Type": ["General", "Emergency", "Critical", "General", "Emergency", "General", "Critical", "General", "Emergency", "General"],
-                "Date": pd.date_range(start="2024-01-01", periods=10),
-                "Status": ["Answered", "Praying", "Praying", "Answered", "Praying", "Answered", "Praying", "Answered", "Praying", "Answered"],
-                "Prayer Count": [45, 128, 89, 67, 156, 34, 201, 56, 178, 42]
-            })
-            
-            st.success("✅ SQL Server Connected Successfully")
-            st.dataframe(prayer_data, use_container_width=True)
-            
-            # Database Stats
-            st.metric("Total Records", len(prayer_data))
-            st.metric("Answered Prayers", len(prayer_data[prayer_data["Status"] == "Answered"]))
-
-with col2:
-    st.markdown("### 🤖 AI Integration Panel")
-    
-    ai_service = st.selectbox(
-        "Select AI Service:",
-        ["ChatGPT-4", "DeepSeek", "Google Gemini", "Custom Spiritual AI"]
-    )
-    
-    ai_prompt = st.text_area(
-        "Ask AI for spiritual guidance:",
-        "How can I strengthen my prayer life?",
-        height=100
-    )
-    
-    if st.button("🔄 Get AI Response"):
-        with st.spinner(f"Consulting {ai_service}..."):
-            time.sleep(2)
-            
-            with st.chat_message("assistant"):
-                st.markdown(f"### {ai_service} Response:")
-                st.markdown("""
-                Based on spiritual wisdom and AI analysis:
-                
-                1. **Consistency is key** - Pray at the same time daily
-                2. **Quality over quantity** - 5 minutes of focused prayer is better than 30 distracted minutes
-                3. **Journal your prayers** - Record requests and answers
-                4. **Join prayer groups** - Community amplifies spiritual energy
-                5. **Practice gratitude** - Start each prayer with thanks
-                
-                *"Prayer is not asking. It is a longing of the soul." - Mahatma Gandhi*
-                """)
-            
-            st.success(f"✅ {ai_service} response generated")
-
-# ==================== PUSH NOTIFICATIONS ====================
-st.markdown("---")
-st.markdown("## 🔔 Push Notification System")
-
-notification_col1, notification_col2 = st.columns(2)
-
-with notification_col1:
-    st.markdown("### Notification Settings")
-    
-    enable_push = st.checkbox("Enable Push Notifications", True)
-    
-    if enable_push:
-        st.checkbox("New prayer requests", True)
-        st.checkbox("Prayer answered alerts", True)
-        st.checkbox("Daily reminders", False)
-        st.checkbox("Community updates", True)
-        st.checkbox("Emergency alerts", True)
-        
-        notification_time = st.time_input("Preferred notification time")
-        notification_sound = st.selectbox("Notification sound", ["Default", "Bell", "Chime", "Singing Bowl"])
-
-with notification_col2:
-    st.markdown("### Test Notifications")
-    
-    if st.button("📱 Send Test Notification"):
-        with st.spinner("Sending test notification to your device..."):
-            time.sleep(2)
-            st.success("✅ Test notification sent!")
-            st.info("Check your mobile device for the test prayer alert")
-
-# ==================== MOBILE FOOTER ICONS ====================
-st.markdown("---")
-st.markdown('<div class="mobile-icons">', unsafe_allow_html=True)
-
-footer_cols = st.columns(7)
-with footer_cols[0]:
-    st.markdown("🏠")
-    st.caption("Home")
-with footer_cols[1]:
-    st.markdown("🙏")
-    st.caption("Pray")
-with footer_cols[2]:
-    st.markdown("📖")
-    st.caption("Blog")
-with footer_cols[3]:
-    st.markdown("🎵")
-    st.caption("Media")
-with footer_cols[4]:
-    st.markdown("👥")
-    st.caption("Groups")
-with footer_cols[5]:
-    st.markdown("⚙️")
-    st.caption("Settings")
-with footer_cols[6]:
-    st.markdown("👤")
-    st.caption("Profile")
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# ==================== FINAL FOOTER ====================
-st.markdown("---")
-st.markdown('<div class="footer">', unsafe_allow_html=True)
-
-footer1, footer2, footer3, footer4 = st.columns(4)
-
-with footer1:
-    st.markdown("**📱 Mobile App**")
-    st.markdown("iOS & Android")
-    st.markdown("Version 2026.2.1")
-    st.markdown("Professional Edition")
-
-with footer2:
-    st.markdown("**🔗 Connect**")
-    st.markdown("Prayer Groups")
-    st.markdown("Volunteer")
-    st.markdown("Donate")
-    st.markdown("Partner")
-
-with footer3:
-    st.markdown("**🛠️ Features**")
-    st.markdown("Unlimited Posts")
-    st.markdown("AI Integration")
-    st.markdown("Push Notifications")
-    st.markdown("Database API")
-
-with footer4:
-    st.markdown("**📞 Support**")
-    st.markdown("help@vakyadharam.com")
-    st.markdown("24/7 Prayer Line")
-    st.markdown("FAQ")
-    st.markdown("Contact Us")
-
-st.markdown("---")
-st.markdown("© 2026 Vakyadharam Prayer Platform • Professional Spiritual App • All prayers are confidential")
-st.markdown("🙏 Your faith matters • 💖 Community support • ✨ Divine blessings")
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# ==================== SESSION STATE INITIALIZATION ====================
-if 'prayer_count' not in st.session_state:
-    st.session_state.prayer_count = 0
-if 'show_form' not in st.session_state:
-    st.session_state.show_form = False
-if 'prayer_type' not in st.session_state:
-    st.session_state.prayer_type = ""
-
-# ==================== HIDDEN DEVELOPER OPTIONS ====================
-with st.sidebar:
-    with st.expander("🛠️ Developer Options"):
-        if st.button("Clear Session State"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-        
-        if st.button("Debug Info"):
-            st.write("Session State:", st.session_state)
-            st.write("Python Version:", sys.version)
+if __name__ == '__main__':
+    socketio.run(app, debug=True, port=5000)
